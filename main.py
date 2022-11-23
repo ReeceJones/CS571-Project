@@ -4,7 +4,7 @@ from gobigger.envs import create_env_custom
 from learning import LearningBase
 from nnlearner import NNLearner
 
-NUM_GAMES = 50
+NUM_GAMES = 1
 NUM_PLAYERS = 4
 FRAME_LIMIT = 2400 # 2 minutes
 MAP_WIDTH = 100
@@ -55,9 +55,9 @@ def run_game(learning_impl: LearningBase):
             obs, rew, done, info = env.step(actions)
             
             _global_state, player_state = obs
+            print(rew)
 
-            print('[{}] leaderboard={}'.format(f, obs[0]['leaderboard']))
-
+            #print('[{}] leaderboard={}'.format(f, obs[0]['leaderboard']))
             if prev_state is not None:
                 ### do learning here
                 learning_impl.step(prev_state, actions, player_state, rew)
@@ -76,4 +76,4 @@ def run_game(learning_impl: LearningBase):
     env.close()
 
 if __name__=='__main__':
-    run_game(NNLearner())
+    run_game(NNLearner(4))

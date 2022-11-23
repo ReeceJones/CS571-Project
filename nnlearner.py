@@ -39,9 +39,10 @@ class NNLearner(LearningBase):
             Y = self.out_layer(Y)
             return Y
 
-    def __init__(self):
-        self.model = self.SimpleNN()
-        self.optimizer = optim.Adam(list(self.model.parameters()))
+    def __init__(self, num_players):
+        self.num_players = num_players
+        self.model = [self.SimpleNN() for i in range(num_players)]
+        self.optimizer = optim.Adam(list(self.model[0].parameters()))
         self.criterion = nn.MSELoss()
 
     def step(self, prev_states, actions, new_states, rew):
@@ -57,8 +58,16 @@ class NNLearner(LearningBase):
             return
 
         for player_id in new_states.keys():
+            prev_state = prev_states[player_id]
             action = actions[player_id]
             state = new_states[player_id]
+            reward = [rew[player_id]]
+            encoded, target = self.batch_encode(player_id, prev_state, action, reward)
+            score = self.model[player_id](encoded.float())
+            loss = self.criterion(score, target.float())
+            self.optimizer.zero_grad()
+            self.optimizer.step()
+        """
 
         encoded, target = self.batch_encode(prev_states, actions, rew)
 
@@ -68,6 +77,7 @@ class NNLearner(LearningBase):
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+        """
 
 
     def apply(self, player_states, alpha):
@@ -83,18 +93,23 @@ class NNLearner(LearningBase):
                 best_action = ((random.uniform(-1,1), random.uniform(-1,1), random.randint(0,2)), -99999999)
                 if random.uniform(0,1) > alpha:
                     for opt in all_opts:
-                        reward = self.model(self.encode(pid, player_states[pid], opt)).item()
+                        reward = self.model[pid](self.encode(pid, player_states[pid], opt)).item()
                         best_action = max((opt, reward), best_action, key=lambda x:x[1])
                 actions[pid] = best_action[0]
             return actions
 
-    def batch_encode(self, states, actions, rew):
+    def batch_encode(self, player_id, states, actions, rew):
         l = list()
         s = list()
+        e = list(self.encode(player_id, states, actions))
+        l.append(e)
+        s.append(rew)
+        """
         for pid in actions.keys():
             e = list(self.encode(pid, states[pid], actions[pid]))
             l.append(e)
             s.append(rew[pid])
+        """
         return torch.tensor(l), torch.tensor(s)
 
     def encode(self, pid, state, action):
