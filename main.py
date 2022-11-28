@@ -4,7 +4,7 @@ from gobigger.envs import create_env_custom
 from learning import LearningBase
 from nnlearner import NNLearner
 
-NUM_GAMES = 1
+NUM_GAMES = 50
 NUM_PLAYERS = 4
 FRAME_LIMIT = 2400 # 2 minutes
 MAP_WIDTH = 100
@@ -41,6 +41,7 @@ def run_game(learning_impl: LearningBase):
     env = create_env_custom(type='st', cfg=cfg)
 
     alpha = 0.95
+    alpha = [(random.randint(75, 97)/100) for i in range(NUM_PLAYERS)]
     decay = 0.95
 
     for e in range(NUM_GAMES):
@@ -72,7 +73,8 @@ def run_game(learning_impl: LearningBase):
                 print('finish game!')
                 break
             prev_state = player_state
-        alpha *= decay
+        for i in range(len(alpha)):
+            alpha[i] *= decay
     env.close()
 
 if __name__=='__main__':

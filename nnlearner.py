@@ -91,7 +91,7 @@ class NNLearner(LearningBase):
             all_opts = list(product(vector_opts, vector_opts, action_opts))
             for pid in player_states.keys():
                 best_action = ((random.uniform(-1,1), random.uniform(-1,1), random.randint(0,2)), -99999999)
-                if random.uniform(0,1) > alpha:
+                if random.uniform(0,1) > alpha[pid]:
                     for opt in all_opts:
                         reward = self.model[pid](self.encode(pid, player_states[pid], opt)).item()
                         best_action = max((opt, reward), best_action, key=lambda x:x[1])
