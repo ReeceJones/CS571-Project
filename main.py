@@ -6,11 +6,14 @@ from nnlearner import NNLearner
 
 NUM_GAMES = 50
 NUM_PLAYERS = 4
-FRAME_LIMIT = 2400 # 2 minutes
-MAP_WIDTH = 100
-MAP_HEIGHT = 100
+FRAME_LIMIT = 5 * 1200 # 5 minutes
+#MAP_WIDTH = 100
+#MAP_HEIGHT = 100
+MAP_WIDTH = 75
+MAP_HEIGHT = 75
 SAVE_VIDEO = True
 SAVE_FRAME = False
+LEARNING_WINDOW = 10
 
 def run_game(learning_impl: LearningBase):
     # create an environment
@@ -36,45 +39,72 @@ def run_game(learning_impl: LearningBase):
                 save_dir='.',
                 save_name_prefix='gameframes'
             )
-        )
+        )#,
+        #manager_settings=dict(
+        #    player_manager=dict(
+        #        ball_settings=dict(
+        #            score_decay_rate_per_frame=0.0
+        #        )
+        #    )
+        #)
     )
-    env = create_env_custom(type='st', cfg=cfg)
+    env = create_env_custom(type='st', cfg=cfg, step_mul=30)
 
-    alpha = 0.95
-    alpha = [(random.randint(75, 97)/100) for i in range(NUM_PLAYERS)]
+    learning_impl.train()
+
+    alpha = 0.3
     decay = 0.95
 
-    for e in range(NUM_GAMES):
+    accumulated_reward = [0.0] * NUM_PLAYERS
+
+    reward_discount = 0.95
+    current_reward_discount = 1.0
+
+    #for e in range(NUM_GAMES):
+    while True:
         obs = env.reset()
 
         f = 0
         team_info = env.get_team_infos()
         actions = {k[0]: [random.uniform(-1,1), random.uniform(-1,1), -1] for k in team_info}
-        prev_state = None
+        starting_state = None
+        starting_actions = None
         while True:
-            f = f + 1
             obs, rew, done, info = env.step(actions)
+
+            current_reward_discount *= reward_discount
+
+            for (i, r) in enumerate(rew):
+                accumulated_reward[i] += current_reward_discount * r
             
             _global_state, player_state = obs
             print(rew)
 
             #print('[{}] leaderboard={}'.format(f, obs[0]['leaderboard']))
-            if prev_state is not None:
+            if starting_state is not None and f % LEARNING_WINDOW == 0:
                 ### do learning here
-                learning_impl.step(prev_state, actions, player_state, rew)
-                ###
+                learning_impl.step(starting_state, starting_actions, accumulated_reward)
+                for i in range(len(accumulated_reward)):
+                    accumulated_reward[i] = 0.0
 
             ### apply learned model
-            actions.update(learning_impl.apply(player_state, alpha))
+            force_random = f % LEARNING_WINDOW == 0
+            actions.update(learning_impl.apply(player_state, alpha, force_random))
             print(actions)
             ###
 
             if done:
                 print('finish game!')
+                learning_impl.save()
+                alpha *= decay
                 break
-            prev_state = player_state
-        for i in range(len(alpha)):
-            alpha[i] *= decay
+
+            if f % LEARNING_WINDOW == 0:
+                starting_state = player_state
+                starting_actions = actions.copy()
+                current_reward_discount = 1.0
+
+            f = f + 1
     env.close()
 
 if __name__=='__main__':
