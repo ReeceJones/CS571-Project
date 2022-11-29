@@ -60,9 +60,17 @@ class NNLearner(LearningBase):
         for m in self.model:
             m.train()
 
+    def eval(self):
+        for m in self.model:
+            m.train()
+
     def save(self):
         for (i, model) in enumerate(self.model):
             torch.save(model.state_dict(), "model" + str(i) + ".pt")
+
+    def load(self):
+        for (i, model) in enumerate(self.model):
+            model.load_state_dict(torch.load("model" + str(i) + ".pt"))
 
     def step(self, starting_states, actions, accum_rew):
         """
@@ -92,7 +100,7 @@ class NNLearner(LearningBase):
                     actions[pid] = random.choice(all_opts)
                 else:
                     best_action = ((random.uniform(-1,1), random.uniform(-1,1), random.choice(action_opts)), float('-inf'))
-                    if random.uniform(0,1) > alpha:
+                    if random.uniform(0,1) >= alpha:
                         for opt in all_opts:
                             reward = self.model[pid](self.encode(pid, player_states[pid], opt)).item()
                             best_action = max((opt, reward), best_action, key=lambda x:x[1])

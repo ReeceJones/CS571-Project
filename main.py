@@ -15,6 +15,10 @@ SAVE_VIDEO = True
 SAVE_FRAME = False
 LEARNING_WINDOW = 10
 
+TRAIN_MODE = 0
+TEST_MODE = 1
+MODE = TRAIN_MODE
+
 def run_game(learning_impl: LearningBase):
     # create an environment
     cfg=dict(
@@ -50,10 +54,15 @@ def run_game(learning_impl: LearningBase):
     )
     env = create_env_custom(type='st', cfg=cfg, step_mul=30)
 
-    learning_impl.train()
-
     alpha = 0.3
     decay = 0.95
+
+    if MODE == TRAIN_MODE:
+        learning_impl.train()
+    else:
+        alpha = 0.0
+        learning_impl.load()
+        learning_impl.eval()
 
     accumulated_reward = [0.0] * NUM_PLAYERS
 
@@ -72,37 +81,42 @@ def run_game(learning_impl: LearningBase):
         while True:
             obs, rew, done, info = env.step(actions)
 
-            current_reward_discount *= reward_discount
-
-            for (i, r) in enumerate(rew):
-                accumulated_reward[i] += current_reward_discount * r
+            if MODE == TRAIN_MODE:
+                current_reward_discount *= reward_discount
+                for (i, r) in enumerate(rew):
+                    accumulated_reward[i] += current_reward_discount * r
             
             _global_state, player_state = obs
             print(rew)
 
             #print('[{}] leaderboard={}'.format(f, obs[0]['leaderboard']))
-            if starting_state is not None and f % LEARNING_WINDOW == 0:
-                ### do learning here
-                learning_impl.step(starting_state, starting_actions, accumulated_reward)
-                for i in range(len(accumulated_reward)):
-                    accumulated_reward[i] = 0.0
+            if MODE == TRAIN_MODE:
+                if starting_state is not None and f % LEARNING_WINDOW == 0:
+                    ### do learning here
+                    learning_impl.step(starting_state, starting_actions, accumulated_reward)
+                    for i in range(len(accumulated_reward)):
+                        accumulated_reward[i] = 0.0
 
             ### apply learned model
             force_random = f % LEARNING_WINDOW == 0
+            if MODE == TEST_MODE:
+                force_random = False
             actions.update(learning_impl.apply(player_state, alpha, force_random))
             print(actions)
             ###
 
             if done:
                 print('finish game!')
-                learning_impl.save()
-                alpha *= decay
+                if MODE == TRAIN_MODE:
+                    learning_impl.save()
+                    alpha *= decay
                 break
 
-            if f % LEARNING_WINDOW == 0:
-                starting_state = player_state
-                starting_actions = actions.copy()
-                current_reward_discount = 1.0
+            if MODE == TRAIN_MODE:
+                if f % LEARNING_WINDOW == 0:
+                    starting_state = player_state
+                    starting_actions = actions.copy()
+                    current_reward_discount = 1.0
 
             f = f + 1
     env.close()
