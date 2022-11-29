@@ -13,11 +13,13 @@ MAP_WIDTH = 75
 MAP_HEIGHT = 75
 SAVE_VIDEO = True
 SAVE_FRAME = False
-LEARNING_WINDOW = 10
+LEARNING_WINDOW = 5
 
 TRAIN_MODE = 0
 TEST_MODE = 1
 MODE = TRAIN_MODE
+
+NUM_ENVS = 16
 
 def run_game(learning_impl: LearningBase):
     # create an environment
@@ -43,16 +45,19 @@ def run_game(learning_impl: LearningBase):
                 save_dir='.',
                 save_name_prefix='gameframes'
             )
-        )#,
-        #manager_settings=dict(
-        #    player_manager=dict(
-        #        ball_settings=dict(
-        #            score_decay_rate_per_frame=0.0
-        #        )
-        #    )
-        #)
+        ),
+        manager_settings=dict(
+            player_manager=dict(
+                ball_settings=dict(
+                    score_decay_rate_per_frame=0.0
+                )
+            )
+        )
     )
-    env = create_env_custom(type='st', cfg=cfg, step_mul=30)
+    envs = []
+    for _ in range(NUM_ENVS):
+        envs.append(create_env_custom(type='st', cfg=cfg, step_mul=30))
+        cfg['playback_settings']['by_video']['save_video'] = False
 
     alpha = 0.3
     decay = 0.95
@@ -64,46 +69,59 @@ def run_game(learning_impl: LearningBase):
         learning_impl.load()
         learning_impl.eval()
 
-    accumulated_reward = [0.0] * NUM_PLAYERS
+    accumulated_reward = [[0.0] * NUM_PLAYERS for e in envs]
 
     reward_discount = 0.95
     current_reward_discount = 1.0
 
     #for e in range(NUM_GAMES):
     while True:
-        obs = env.reset()
+        obs = [e.reset() for e in envs]
 
         f = 0
-        team_info = env.get_team_infos()
-        actions = {k[0]: [random.uniform(-1,1), random.uniform(-1,1), -1] for k in team_info}
-        starting_state = None
-        starting_actions = None
+        actions = [{k[0]: [random.uniform(-1,1), random.uniform(-1,1), -1] for k in e.get_team_infos()} for e in envs]
+        starting_state = [None] * NUM_ENVS
+        starting_actions = [None] * NUM_ENVS
         while True:
-            obs, rew, done, info = env.step(actions)
+            done = False
+
+            batched_player_state = []
 
             if MODE == TRAIN_MODE:
                 current_reward_discount *= reward_discount
-                for (i, r) in enumerate(rew):
-                    accumulated_reward[i] += current_reward_discount * r
-            
-            _global_state, player_state = obs
-            print(rew)
 
-            #print('[{}] leaderboard={}'.format(f, obs[0]['leaderboard']))
+            for (env_i, e) in enumerate(envs):
+                obs, rew, done, info = e.step(actions[env_i])
+
+                print('[{}] leaderboard={}'.format(f, obs[0]['leaderboard']))
+
+                if MODE == TRAIN_MODE:
+                    for (i, r) in enumerate(rew):
+                        accumulated_reward[env_i][i] += current_reward_discount * r
+                
+                _global_state, player_state = obs
+                batched_player_state.append(player_state)
+
             if MODE == TRAIN_MODE:
-                if starting_state is not None and f % LEARNING_WINDOW == 0:
+                if starting_state[0] is not None and f % LEARNING_WINDOW == 0:
                     ### do learning here
                     learning_impl.step(starting_state, starting_actions, accumulated_reward)
                     for i in range(len(accumulated_reward)):
-                        accumulated_reward[i] = 0.0
+                        accumulated_reward = [[0.0] * NUM_PLAYERS for e in envs]
 
-            ### apply learned model
-            force_random = f % LEARNING_WINDOW == 0
-            if MODE == TEST_MODE:
-                force_random = False
-            actions.update(learning_impl.apply(player_state, alpha, force_random))
-            print(actions)
-            ###
+            for (env_i, e) in enumerate(envs):
+                ### apply learned model
+                actions[env_i].update(learning_impl.apply(batched_player_state[env_i], alpha, False))
+                print(actions[env_i])
+                ###
+
+                if MODE == TRAIN_MODE:
+                    if f % LEARNING_WINDOW == 0:
+                        starting_state[env_i] = batched_player_state[env_i]
+                        starting_actions[env_i] = actions[env_i].copy()
+                        current_reward_discount = 1.0
+
+            f = f + 1
 
             if done:
                 print('finish game!')
@@ -111,14 +129,6 @@ def run_game(learning_impl: LearningBase):
                     learning_impl.save()
                     alpha *= decay
                 break
-
-            if MODE == TRAIN_MODE:
-                if f % LEARNING_WINDOW == 0:
-                    starting_state = player_state
-                    starting_actions = actions.copy()
-                    current_reward_discount = 1.0
-
-            f = f + 1
     env.close()
 
 if __name__=='__main__':

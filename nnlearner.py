@@ -32,7 +32,7 @@ class NNLearner(LearningBase):
             self.im_layer4 = nn.Linear(32, 16)
             self.nonlin4 = nn.ReLU()
             self.out_layer = nn.Linear(16, 1)
-            self.dropout = nn.Dropout(0.25)
+            self.dropout = nn.Dropout(0.1)
 
         def forward(self,X):
             Y = self.im_layer1(X)
@@ -53,7 +53,7 @@ class NNLearner(LearningBase):
     def __init__(self, num_players):
         self.num_players = num_players
         self.model = [self.SimpleNN() for i in range(num_players)]
-        self.optimizers = [optim.Adam(m.parameters(), lr=0.05) for m in self.model]
+        self.optimizers = [optim.SGD(m.parameters(), lr=1e-2, momentum=0.9) for m in self.model]
         self.criterion = nn.MSELoss()
 
     def train(self):
@@ -72,16 +72,16 @@ class NNLearner(LearningBase):
         for (i, model) in enumerate(self.model):
             model.load_state_dict(torch.load("model" + str(i) + ".pt"))
 
-    def step(self, starting_states, actions, accum_rew):
+    def step(self, batched_starting_states, batched_actions, batched_accum_rew):
         """
         Apply outcomes of the previous actions to the learning model.
         """
-        for player_id in starting_states.keys():
-            starting_state = starting_states[player_id]
-            action = actions[player_id]
-            actual_reward = torch.tensor(accum_rew[player_id])
-            encoded = self.encode(player_id, starting_state, action)
-            score = self.model[player_id](encoded.float()).squeeze()
+        for player_id in batched_starting_states[0].keys():
+            starting_state = [starting_states[player_id] for starting_states in batched_starting_states]
+            action = [actions[player_id] for actions in batched_actions]
+            actual_reward = torch.tensor([accum_rew[player_id] for accum_rew in batched_accum_rew])
+            encoded = self.batch_encode(player_id, starting_state, action)
+            score = self.model[player_id](encoded)
             loss = self.criterion(score, actual_reward)
             self.optimizers[player_id].zero_grad()
             self.optimizers[player_id].step()
@@ -107,10 +107,15 @@ class NNLearner(LearningBase):
                     actions[pid] = best_action[0]
             return actions
 
+    def batch_encode(self, pid, states, actions):
+        return torch.stack([self.encode(pid, state, action) for (state, action) in zip(states, actions)])
+
     def encode(self, pid, state, action):
         """
         Convert gobigger state,action data to pytorch tensor.
         """
+
+        window_center = ((state['rectangle'][0] + state['rectangle'][2]) / 2.0, (state['rectangle'][1] + state['rectangle'][3]) / 2.0)
 
         # Determine which clones belong to the player that we are encoding the state for
         players_clones = [clone for clone in state['overlap']['clone'] if clone[CLONE_PID] == pid]
@@ -120,12 +125,12 @@ class NNLearner(LearningBase):
         max_player_clones = 10
         most_important_clones = sorted(players_clones, key=lambda clone: -clone[CLONE_RADIUS])[:max_player_clones]
         # Construct the information vector for the player
-        player_info = [-1.0] * 3 * max_player_clones
+        player_info = [999] * 3 * max_player_clones
 
         i = 0
         for clone in most_important_clones:
-            player_info[i] = clone[CLONE_X]
-            player_info[i+1] = clone[CLONE_Y]
+            player_info[i] = clone[CLONE_X] - window_center[0]
+            player_info[i+1] = clone[CLONE_Y] - window_center[1]
             player_info[i+2] = clone[CLONE_RADIUS] # radius
             i += 3
 
@@ -136,18 +141,18 @@ class NNLearner(LearningBase):
             list(action[:2]) # Encode the direction that we want to go
             + [(1 if x == action[2] else 0) for x in range(3)] # Encode the action we are taking as a one hot vector
             + player_info # Encode the position and radius of our blobs
-            + self.get_candidates(players_clones, enemy_clones, 10) # Encode the position and radius of all enemy blobs
-            + self.get_candidates(players_clones, state['overlap']['food'], 10)
-            + self.get_candidates(players_clones, state['overlap']['thorns'], 10)
-            + self.get_candidates(players_clones, state['overlap']['spore'], 10)
+            + self.get_candidates(players_clones, enemy_clones, window_center, 10) # Encode the position and radius of all enemy blobs
+            + self.get_candidates(players_clones, state['overlap']['food'], window_center, 10)
+            + self.get_candidates(players_clones, state['overlap']['thorns'], window_center, 10)
+            + self.get_candidates(players_clones, state['overlap']['spore'], window_center, 10)
             + [int(state['can_split']), int(state['can_eject']), int(state['score'])]
         )
 
-    def get_candidates(self, ref, tgt, candidate_length):
+    def get_candidates(self, ref, tgt, window_center, candidate_length):
         """
         Returns candidate_length number of positions that are closest to ref
         """
-        z = [-1.0] * 3 * candidate_length
+        z = [999] * 3 * candidate_length
         i = 0
         cl = list()
         for t in tgt:
@@ -163,8 +168,8 @@ class NNLearner(LearningBase):
         for (t, dist) in cl:
             if i >= len(z):
                 break
-            z[i] = t[CLONE_X] # x
-            z[i+1] = t[CLONE_Y] # y
+            z[i] = t[CLONE_X] - window_center[0] # x
+            z[i+1] = t[CLONE_Y] - window_center[1] # y
             z[i+2] = t[CLONE_RADIUS] # radius
             i = i + 3
         return z
