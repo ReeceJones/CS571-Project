@@ -11,15 +11,15 @@ FRAME_LIMIT = 5 * 1200 # 5 minutes
 #MAP_HEIGHT = 100
 MAP_WIDTH = 75
 MAP_HEIGHT = 75
-SAVE_VIDEO = True
-SAVE_FRAME = False
+SAVE_VIDEO = False
+SAVE_FRAME = True
 LEARNING_WINDOW = 5
 
 TRAIN_MODE = 0
 TEST_MODE = 1
-MODE = TRAIN_MODE
+MODE = TEST_MODE
 
-NUM_ENVS = 16
+NUM_ENVS = 1
 
 def run_game(learning_impl: LearningBase):
     # create an environment
@@ -37,12 +37,12 @@ def run_game(learning_impl: LearningBase):
                 save_resolution=480,
                 save_all=True,
                 save_partial=False,
-                save_dir='.',
+                save_dir='/tmp',
                 save_name_prefix='gamevod'
             ),
             by_frame = dict(
                 save_frame=(True if SAVE_FRAME else False),
-                save_dir='.',
+                save_dir='/tmp',
                 save_name_prefix='gameframes'
             )
         ),
@@ -111,7 +111,7 @@ def run_game(learning_impl: LearningBase):
 
             for (env_i, e) in enumerate(envs):
                 ### apply learned model
-                actions[env_i].update(learning_impl.apply(batched_player_state[env_i], alpha, False))
+                actions[env_i].update(learning_impl.apply(batched_player_state[env_i], alpha, False, MODE == TEST_MODE))
                 print(actions[env_i])
                 ###
 
@@ -125,7 +125,11 @@ def run_game(learning_impl: LearningBase):
 
             if done:
                 print('finish game!')
-                if MODE == TRAIN_MODE:
+                if MODE == TEST_MODE:
+                    for e in envs:
+                        e.close()
+                    return
+                elif MODE == TRAIN_MODE:
                     learning_impl.save()
                     alpha *= decay
                 break

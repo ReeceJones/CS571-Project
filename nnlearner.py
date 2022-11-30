@@ -3,6 +3,7 @@ import torch.optim as optim
 import torch.nn as nn
 import math
 import random
+import numpy as np
 
 from itertools import product
 
@@ -23,9 +24,7 @@ class NNLearner(LearningBase):
     class SimpleNN(nn.Module):
         def __init__(self):
             super().__init__()
-            self.im_layer1 = nn.Linear(158, 128)
-            self.nonlin1 = nn.ReLU()
-            self.im_layer2 = nn.Linear(128, 64)
+            self.im_layer2 = nn.Linear(86, 64)
             self.nonlin2 = nn.ReLU()
             self.im_layer3 = nn.Linear(64, 32)
             self.nonlin3 = nn.ReLU()
@@ -35,10 +34,7 @@ class NNLearner(LearningBase):
             self.dropout = nn.Dropout(0.1)
 
         def forward(self,X):
-            Y = self.im_layer1(X)
-            Y = self.nonlin1(Y)
-            Y = self.dropout(Y)
-            Y = self.im_layer2(Y)
+            Y = self.im_layer2(X)
             Y = self.nonlin2(Y)
             Y = self.dropout(Y)
             Y = self.im_layer3(Y)
@@ -53,7 +49,7 @@ class NNLearner(LearningBase):
     def __init__(self, num_players):
         self.num_players = num_players
         self.model = [self.SimpleNN() for i in range(num_players)]
-        self.optimizers = [optim.SGD(m.parameters(), lr=1e-2, momentum=0.9) for m in self.model]
+        self.optimizers = [optim.Adam(m.parameters()) for m in self.model]
         self.criterion = nn.MSELoss()
 
     def train(self):
@@ -79,14 +75,14 @@ class NNLearner(LearningBase):
         for player_id in batched_starting_states[0].keys():
             starting_state = [starting_states[player_id] for starting_states in batched_starting_states]
             action = [actions[player_id] for actions in batched_actions]
-            actual_reward = torch.tensor([accum_rew[player_id] for accum_rew in batched_accum_rew])
+            actual_reward = torch.tensor([accum_rew[player_id] for accum_rew in batched_accum_rew]).reshape(-1,1)
             encoded = self.batch_encode(player_id, starting_state, action)
             score = self.model[player_id](encoded)
             loss = self.criterion(score, actual_reward)
             self.optimizers[player_id].zero_grad()
             self.optimizers[player_id].step()
 
-    def apply(self, player_states, alpha, force_random):
+    def apply(self, player_states, alpha, force_random, test=False):
         """
         Apply learning model to determine the best actions to take for the player states.
         """
@@ -102,7 +98,13 @@ class NNLearner(LearningBase):
                     best_action = ((random.uniform(-1,1), random.uniform(-1,1), random.choice(action_opts)), float('-inf'))
                     if random.uniform(0,1) >= alpha:
                         for opt in all_opts:
-                            reward = self.model[pid](self.encode(pid, player_states[pid], opt)).item()
+                            reward = 0.0
+                            encoded_state = self.encode(pid, player_states[pid], opt)
+                            if test:
+                                reward = np.mean([self.model[i](encoded_state).item() for i in range(len(self.model))])
+                            else:
+                                #reward = self.model[pid](self.encode(pid, player_states[pid], opt)).item()
+                                reward = self.model[pid](encoded_state).item()
                             best_action = max((opt, reward), best_action, key=lambda x:x[1])
                     actions[pid] = best_action[0]
             return actions
@@ -141,10 +143,10 @@ class NNLearner(LearningBase):
             list(action[:2]) # Encode the direction that we want to go
             + [(1 if x == action[2] else 0) for x in range(3)] # Encode the action we are taking as a one hot vector
             + player_info # Encode the position and radius of our blobs
-            + self.get_candidates(players_clones, enemy_clones, window_center, 10) # Encode the position and radius of all enemy blobs
-            + self.get_candidates(players_clones, state['overlap']['food'], window_center, 10)
-            + self.get_candidates(players_clones, state['overlap']['thorns'], window_center, 10)
-            + self.get_candidates(players_clones, state['overlap']['spore'], window_center, 10)
+            + self.get_candidates(players_clones, enemy_clones, window_center, 4) # Encode the position and radius of all enemy blobs
+            + self.get_candidates(players_clones, state['overlap']['food'], window_center, 4)
+            + self.get_candidates(players_clones, state['overlap']['thorns'], window_center, 4)
+            + self.get_candidates(players_clones, state['overlap']['spore'], window_center, 4)
             + [int(state['can_split']), int(state['can_eject']), int(state['score'])]
         )
 
