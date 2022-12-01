@@ -86,6 +86,8 @@ class NNLearner(LearningBase):
         """
         Apply learning model to determine the best actions to take for the player states.
         """
+        dist_from_food = {}
+        dist_from_enemy = {}
         with torch.no_grad():
             actions = dict()
             vector_opts = [-1, -0.5, 0, 0.5, 1]
@@ -100,14 +102,47 @@ class NNLearner(LearningBase):
                         for opt in all_opts:
                             reward = 0.0
                             encoded_state = self.encode(pid, player_states[pid], opt)
+
+
+
                             if test:
-                                reward = np.mean([self.model[i](encoded_state).item() for i in range(len(self.model))])
+                                reward = np.max([self.model[i](encoded_state).item() for i in range(len(self.model))])
                             else:
                                 #reward = self.model[pid](self.encode(pid, player_states[pid], opt)).item()
                                 reward = self.model[pid](encoded_state).item()
+                            best_action_old = best_action
                             best_action = max((opt, reward), best_action, key=lambda x:x[1])
+                            if(best_action != best_action_old):
+                                if(pid not in dist_from_food.keys()):
+                                    dist_from_food[pid] = 0.0
+                                players_clones = [clone for clone in player_states[pid]['overlap']['clone'] if clone[CLONE_PID] == pid]
+                                enemy_clones = [clone for clone in player_states[pid]['overlap']['clone'] if clone[CLONE_PID] != pid]
+                                window_center = ((player_states[pid]['rectangle'][0] + player_states[pid]['rectangle'][2]) / 2.0, (player_states[pid]['rectangle'][1] + player_states[pid]['rectangle'][3]) / 2.0)
+                                food_dist_all_players = []
+                                enemy_dist_all_players = []
+                                for players in players_clones:
+                                    distances = []
+                                    mean_food_dist_player = 0
+                                    for target in player_states[pid]['overlap']['food']:
+                                        distances.append(math.sqrt((players[0] - target[0]) ** 2 + (players[1] - target[1]) ** 2))
+                                    distances = sorted(distances)
+                                    mean_food_dist_player = np.mean(distances[0:4])
+                                    food_dist_all_players.append(mean_food_dist_player)
+                                    distances = []
+                                    mean_enemy_dist = 0
+                                    for target in enemy_clones:
+                                        distances.append(math.sqrt((players[0] - target[0]) ** 2 + (players[1] - target[1]) ** 2))
+                                    distances = sorted(distances)
+                                    mean_enemy_dist = np.mean(distances[0:2])
+                                    enemy_dist_all_players.append(mean_enemy_dist)
+
+
+                                #food_dist = self.get_candidates(players_clones, player_states[pid]['overlap']['food'], window_center, 4)
+                                dist_from_enemy[pid] = np.min(enemy_dist_all_players)
+                                dist_from_food[pid] = np.min(food_dist_all_players)
                     actions[pid] = best_action[0]
-            return actions
+
+            return actions, [dist_from_food, dist_from_enemy]
 
     def batch_encode(self, pid, states, actions):
         return torch.stack([self.encode(pid, state, action) for (state, action) in zip(states, actions)])

@@ -1,18 +1,18 @@
 import random
 from gobigger.envs import create_env_custom
-
+import matplotlib.pyplot as plt
 from learning import LearningBase
 from nnlearner import NNLearner
-
-NUM_GAMES = 50
+import numpy as np
+NUM_GAMES = 2
 NUM_PLAYERS = 4
 FRAME_LIMIT = 5 * 1200 # 5 minutes
 #MAP_WIDTH = 100
 #MAP_HEIGHT = 100
 MAP_WIDTH = 75
 MAP_HEIGHT = 75
-SAVE_VIDEO = False
-SAVE_FRAME = True
+SAVE_VIDEO = True
+SAVE_FRAME = False
 LEARNING_WINDOW = 5
 
 TRAIN_MODE = 0
@@ -37,7 +37,7 @@ def run_game(learning_impl: LearningBase):
                 save_resolution=480,
                 save_all=True,
                 save_partial=False,
-                save_dir='/tmp',
+                #save_dir='/tmp',
                 save_name_prefix='gamevod'
             ),
             by_frame = dict(
@@ -49,7 +49,8 @@ def run_game(learning_impl: LearningBase):
         manager_settings=dict(
             player_manager=dict(
                 ball_settings=dict(
-                    score_decay_rate_per_frame=0.0
+                    score_decay_rate_per_frame=0.00005,
+                    score_decay_min=2600
                 )
             )
         )
@@ -73,7 +74,8 @@ def run_game(learning_impl: LearningBase):
 
     reward_discount = 0.95
     current_reward_discount = 1.0
-
+    dist_from_food = {}
+    dist_from_enemy = {}
     #for e in range(NUM_GAMES):
     while True:
         obs = [e.reset() for e in envs]
@@ -111,7 +113,15 @@ def run_game(learning_impl: LearningBase):
 
             for (env_i, e) in enumerate(envs):
                 ### apply learned model
-                actions[env_i].update(learning_impl.apply(batched_player_state[env_i], alpha, False, MODE == TEST_MODE))
+                action, performance_metric = learning_impl.apply(batched_player_state[env_i], alpha, False, MODE == TEST_MODE)
+                actions[env_i].update(action)
+                for pid in performance_metric[0].keys():
+                    if pid not in dist_from_food.keys():
+                        dist_from_food[pid] = []
+                    dist_from_food[pid].append(performance_metric[0][pid])
+                    if pid not in dist_from_enemy.keys():
+                        dist_from_enemy[pid] = []
+                    dist_from_enemy[pid].append(performance_metric[1][pid])
                 print(actions[env_i])
                 ###
 
@@ -125,6 +135,24 @@ def run_game(learning_impl: LearningBase):
 
             if done:
                 print('finish game!')
+                y = []
+                counter = 0
+                for pid in dist_from_food.keys():
+                    new_list = []
+                    new_list2 = []
+                    for i in range(len(dist_from_food[pid])-10):
+                        new_list.append(np.mean(dist_from_food[pid][i:i+10]))
+                        new_list2.append(np.mean(dist_from_enemy[pid][i:i+10]))
+                    dist_from_food[pid] = new_list
+                    dist_from_enemy[pid] = new_list2
+                    if(len(y) == 0):
+                        y = [i for i in range(len(dist_from_food[pid]))]
+                    
+                    plt.plot(y, dist_from_food[pid], label=str(pid))
+                    plt.plot(y, dist_from_enemy[pid])
+                    break
+                plt.show()
+
                 if MODE == TEST_MODE:
                     for e in envs:
                         e.close()
