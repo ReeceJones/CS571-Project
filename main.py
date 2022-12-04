@@ -11,7 +11,7 @@ FRAME_LIMIT = 5 * 1200 # 5 minutes
 #MAP_HEIGHT = 100
 MAP_WIDTH = 75
 MAP_HEIGHT = 75
-SAVE_VIDEO = True
+SAVE_VIDEO = False
 SAVE_FRAME = False
 LEARNING_WINDOW = 5
 
@@ -19,7 +19,10 @@ TRAIN_MODE = 0
 TEST_MODE = 1
 MODE = TEST_MODE
 
-NUM_ENVS = 1
+NUM_ENVS = 100
+
+GEN_GRAPH = False
+RANDOM_PLAYERS = [2,3]
 
 def run_game(learning_impl: LearningBase):
     # create an environment
@@ -76,6 +79,7 @@ def run_game(learning_impl: LearningBase):
     current_reward_discount = 1.0
     dist_from_food = {}
     dist_from_enemy = {}
+    leaderboards = {}
     #for e in range(NUM_GAMES):
     while True:
         obs = [e.reset() for e in envs]
@@ -94,7 +98,7 @@ def run_game(learning_impl: LearningBase):
 
             for (env_i, e) in enumerate(envs):
                 obs, rew, done, info = e.step(actions[env_i])
-
+                leaderboards[env_i] = obs[0]['leaderboard']
                 print('[{}] leaderboard={}'.format(f, obs[0]['leaderboard']))
 
                 if MODE == TRAIN_MODE:
@@ -113,7 +117,7 @@ def run_game(learning_impl: LearningBase):
 
             for (env_i, e) in enumerate(envs):
                 ### apply learned model
-                action, performance_metric = learning_impl.apply(batched_player_state[env_i], alpha, False, MODE == TEST_MODE)
+                action, performance_metric = learning_impl.apply(batched_player_state[env_i], alpha, RANDOM_PLAYERS, MODE == TEST_MODE)
                 actions[env_i].update(action)
                 for pid in performance_metric[0].keys():
                     if pid not in dist_from_food.keys():
@@ -135,23 +139,36 @@ def run_game(learning_impl: LearningBase):
 
             if done:
                 print('finish game!')
-                y = []
-                counter = 0
-                for pid in dist_from_food.keys():
-                    new_list = []
-                    new_list2 = []
-                    for i in range(len(dist_from_food[pid])-10):
-                        new_list.append(np.mean(dist_from_food[pid][i:i+10]))
-                        new_list2.append(np.mean(dist_from_enemy[pid][i:i+10]))
-                    dist_from_food[pid] = new_list
-                    dist_from_enemy[pid] = new_list2
-                    if(len(y) == 0):
-                        y = [i for i in range(len(dist_from_food[pid]))]
-                    
-                    plt.plot(y, dist_from_food[pid], label=str(pid))
-                    plt.plot(y, dist_from_enemy[pid])
-                    break
-                plt.show()
+                if GEN_GRAPH:
+                    y = []
+                    counter = 0
+                    for pid in dist_from_food.keys():
+                        new_list = []
+                        new_list2 = []
+                        for i in range(len(dist_from_food[pid])-10):
+                            new_list.append(np.mean(dist_from_food[pid][i:i+10]))
+                            new_list2.append(np.mean(dist_from_enemy[pid][i:i+10]))
+                        dist_from_food[pid] = new_list
+                        dist_from_enemy[pid] = new_list2
+                        if(len(y) == 0):
+                            y = [i for i in range(len(dist_from_food[pid]))]
+                        
+                        plt.plot(y, dist_from_food[pid], label=str(pid))
+                        plt.plot(y, dist_from_enemy[pid])
+                        break
+                    plt.show()
+
+                if RANDOM_PLAYERS is not None:
+                    total_rank_learner = list()
+                    total_rank_random = list()
+                    for i, leaderboard in leaderboards.items():
+                        for p, s in leaderboard.items():
+                            if p in RANDOM_PLAYERS:
+                                total_rank_random.append(s)
+                            else:
+                                total_rank_learner.append(s)
+                    print(f'Average learner score ({NUM_ENVS=}):\t{np.mean(total_rank_learner)}, {np.std(total_rank_learner)}, {np.median(total_rank_learner)}')
+                    print(f'Average baseline score ({NUM_ENVS=}):\t{np.mean(total_rank_random)}, {np.std(total_rank_random)}, {np.median(total_rank_random)}')
 
                 if MODE == TEST_MODE:
                     for e in envs:

@@ -95,7 +95,7 @@ class NNLearner(LearningBase):
             action_opts = allowed_actions
             all_opts = list(product(vector_opts, vector_opts, action_opts))
             for pid in player_states.keys():
-                if force_random:
+                if pid in force_random:
                     actions[pid] = random.choice(all_opts)
                 else:
                     best_action = ((random.uniform(-1,1), random.uniform(-1,1), random.choice(action_opts)), float('-inf'))
