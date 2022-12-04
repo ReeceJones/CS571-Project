@@ -80,6 +80,7 @@ class NNLearner(LearningBase):
             score = self.model[player_id](encoded)
             loss = self.criterion(score, actual_reward)
             self.optimizers[player_id].zero_grad()
+            loss.backward()
             self.optimizers[player_id].step()
 
     def apply(self, player_states, alpha, force_random, test=False):
